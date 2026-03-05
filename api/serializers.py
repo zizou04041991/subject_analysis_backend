@@ -5,6 +5,26 @@ from django.utils.translation import gettext_lazy as _
 from decimal import Decimal
 
 
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.response import Response
+
+class PaginacionPersonalizada(PageNumberPagination):
+    page_size = 10  # Elementos por página
+    page_size_query_param = 'page_size'  # Permitir al cliente cambiar el tamaño
+    max_page_size = 100  # Tamaño máximo permitido
+    page_query_param = 'page'  # Nombre del parámetro para la página
+    
+    def get_paginated_response(self, data):
+        return Response({
+            'total': self.page.paginator.count,
+            'page': self.page.number,
+            'page_size': self.page.paginator.per_page,
+            'total_pages': self.page.paginator.num_pages,
+            'next': self.get_next_link(),
+            'previous': self.get_previous_link(),
+            'results': data
+        })
+
 class AsignaturaSerializer(serializers.ModelSerializer):
     class Meta:
         model = Asignatura
