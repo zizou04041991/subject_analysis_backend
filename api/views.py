@@ -266,10 +266,10 @@ class NotaViewSet(viewsets.ModelViewSet):
     search_fields = [
         'estudiante__nombre', 
         'estudiante__apellidos',
-        'estudiante__curp',
+        'semestre__numero',
         'asignatura__nombre',
     ]
-    ordering_fields = ['id', 'nota', 'fecha_registro', 'estudiante__nombre', 'asignatura__nombre']
+    ordering_fields = ['id', 'nota', 'fecha_registro','estudiante__apellidos', 'estudiante__nombre', 'asignatura__nombre', 'semestre__numero']
     ordering = ['-fecha_registro']
     
     def get_queryset(self):

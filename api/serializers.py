@@ -99,15 +99,30 @@ class SemestreSerializer(serializers.ModelSerializer):
 
 
 class EstudianteSerializer(serializers.ModelSerializer):
-    # Campos de solo lectura para mostrar información adicional
-    nombre_completo = serializers.CharField(read_only=True)
+
     # Usar SemestreSerializer para mostrar el semestre como objeto anidado
     semestre_actual = SemestreSerializer(read_only=True)
+
+    # Para escritura: aceptar el ID del semestre - ESTE ES EL CAMPO NUEVO
+    semestre_id = serializers.PrimaryKeyRelatedField(
+        source='semestre_actual',  # Se asigna al campo semestre_actual del modelo
+        queryset=Semestre.objects.all(),
+        write_only=True,
+        required=True
+    )
+    
+    
+
+    # Campos de solo lectura para mostrar información adicional
+    nombre_completo = serializers.CharField(read_only=True)
     
     class Meta:
         model = Estudiante
-        fields = ['id', 'curp', 'nombre', 'apellidos', 'semestre_actual', 
-                  'nombre_completo', 'fecha_registro', 'fecha_actualizacion']
+        fields = [
+            'id', 'curp', 'nombre', 'apellidos', 
+            'semestre_actual', 'semestre_id',  # AGREGAR 'semestre_id' AQUÍ
+            'nombre_completo', 'fecha_registro', 'fecha_actualizacion'
+        ]
         read_only_fields = ['fecha_registro', 'fecha_actualizacion']
         extra_kwargs = {
             'curp': {
