@@ -4,18 +4,9 @@ from datetime import date
 
 class Semestre(models.Model):
     """Modelo para gestionar los semestres académicos"""
-    SEMESTRES_CHOICES = [
-        (1, '1er Semestre'),
-        (2, '2do Semestre'),
-        (3, '3er Semestre'),
-        (4, '4to Semestre'),
-        (5, '5to Semestre'),
-        (6, '6to Semestre'),
-    ]
     
     numero = models.IntegerField(
-        unique=True, 
-        choices=SEMESTRES_CHOICES,
+        unique=True,  # Ahora es único pero no es llave primaria
         verbose_name="Semestre"
     )
     
@@ -25,16 +16,11 @@ class Semestre(models.Model):
         verbose_name_plural = "Semestres"
     
     def __str__(self):
-        # Obtiene el texto descriptivo del choice
-        return self.get_numero_display()
+        return f"{self.numero}° Semestre"
     
-    @property
-    def nombre(self):
-        """Propiedad para compatibilidad con código existente"""
-        return self.get_numero_display()
-
 class Asignatura(models.Model):
     nombre = models.CharField(max_length=100, unique=True)
+    color = models.CharField(max_length=7, help_text="Código de color en formato HEX (ej: #FF5733)", default="#000000")
     fecha_creacion = models.DateTimeField(auto_now_add=True)
     fecha_actualizacion = models.DateTimeField(auto_now=True)
 

@@ -14,7 +14,7 @@ from .filters import SemestreFilter, AsignaturaFilter, EstudianteFilter, NotaFil
 class SemestreViewSet(viewsets.ModelViewSet):
     queryset = Semestre.objects.all()
     serializer_class = SemestreSerializer
-    pagination_class = PaginacionPersonalizada
+    #pagination_class = PaginacionPersonalizada
     
     # Filtros
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -123,7 +123,7 @@ class SemestreViewSet(viewsets.ModelViewSet):
 class AsignaturaViewSet(viewsets.ModelViewSet):
     queryset = Asignatura.objects.all()
     serializer_class = AsignaturaSerializer
-    pagination_class = PaginacionPersonalizada
+    #pagination_class = PaginacionPersonalizada
     
     # Filtros
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -136,7 +136,7 @@ class AsignaturaViewSet(viewsets.ModelViewSet):
 class EstudianteViewSet(viewsets.ModelViewSet):
     queryset = Estudiante.objects.all().select_related('semestre_actual')
     serializer_class = EstudianteSerializer
-    pagination_class = PaginacionPersonalizada
+    #pagination_class = PaginacionPersonalizada
     
     # Filtros
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -160,6 +160,29 @@ class EstudianteViewSet(viewsets.ModelViewSet):
     
     def create(self, request, *args, **kwargs):
         try:
+            # Verificar campos requeridos manualmente para mensajes específicos
+            campos_requeridos = ['curp', 'nombre', 'apellidos']
+            errores = {}
+            
+            # Verificar campos requeridos
+            for campo in campos_requeridos:
+                if campo not in request.data or not request.data.get(campo):
+                    errores[campo] = f'El campo {campo} es obligatorio.'
+            
+            # Verificar semestre (puede venir como semestre_id o semestre_actual_id)
+            if 'semestre_id' not in request.data and 'semestre_actual_id' not in request.data:
+                errores['semestre_id'] = 'El campo semestre_id o semestre_actual_id es obligatorio.'
+            elif 'semestre_actual_id' in request.data:
+                # Validar que semestre_actual_id sea un número
+                try:
+                    int(request.data.get('semestre_actual_id'))
+                except (ValueError, TypeError):
+                    errores['semestre_actual_id'] = 'El campo semestre_actual_id debe ser un número entero válido.'
+            
+            if errores:
+                return Response(errores, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Continuar con la creación normal
             serializer = self.get_serializer(data=request.data)
             serializer.is_valid(raise_exception=True)
             self.perform_create(serializer)
@@ -227,20 +250,22 @@ class EstudianteViewSet(viewsets.ModelViewSet):
             )
     
     def _format_error_response(self, error):
+        """Formatea los errores para dar mensajes más específicos"""
         if hasattr(error, 'detail') and isinstance(error.detail, dict):
-            if 'error' in error.detail:
-                if isinstance(error.detail['error'], list):
-                    return {'error': error.detail['error'][0]}
-                return {'error': error.detail['error']}
+            # Ya es un diccionario de errores por campo
+            return error.detail
         
         if isinstance(error, ValidationError):
             if hasattr(error, 'detail'):
                 if isinstance(error.detail, dict):
+                    # Convertir errores de lista a string para mejor legibilidad
+                    formatted_errors = {}
                     for field, errors in error.detail.items():
-                        if errors:
-                            if isinstance(errors, list):
-                                return {'error': str(errors[0])}
-                            return {'error': str(errors)}
+                        if isinstance(errors, list):
+                            formatted_errors[field] = errors[0] if errors else 'Error de validación'
+                        else:
+                            formatted_errors[field] = str(errors)
+                    return formatted_errors
                 elif isinstance(error.detail, list):
                     return {'error': str(error.detail[0]) if error.detail else 'Error de validación'}
                 elif isinstance(error.detail, str):
@@ -249,16 +274,17 @@ class EstudianteViewSet(viewsets.ModelViewSet):
         if isinstance(error, IntegrityError):
             error_str = str(error).lower()
             if "unique constraint" in error_str:
+                if "curp" in error_str:
+                    return {'curp': 'Ya existe un estudiante con esa CURP.'}
                 return {'error': 'Ya existe un registro con estos datos'}
             return {'error': 'Error de integridad en la base de datos'}
         
         return {'error': str(error)}
 
-
 class NotaViewSet(viewsets.ModelViewSet):
     queryset = Nota.objects.all().select_related('estudiante', 'asignatura', 'semestre_cursado')
     serializer_class = NotaSerializer
-    pagination_class = PaginacionPersonalizada
+    #pagination_class = PaginacionPersonalizada
     
     # Filtros
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]

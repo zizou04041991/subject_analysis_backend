@@ -99,20 +99,22 @@ class SemestreSerializer(serializers.ModelSerializer):
 
 
 class EstudianteSerializer(serializers.ModelSerializer):
-
     # Usar SemestreSerializer para mostrar el semestre como objeto anidado
     semestre_actual = SemestreSerializer(read_only=True)
 
-    # Para escritura: aceptar el ID del semestre - ESTE ES EL CAMPO NUEVO
+    # Para escritura: aceptar el ID del semestre
     semestre_id = serializers.PrimaryKeyRelatedField(
-        source='semestre_actual',  # Se asigna al campo semestre_actual del modelo
+        source='semestre_actual',
         queryset=Semestre.objects.all(),
         write_only=True,
-        required=True
+        required=True,
+        error_messages={
+            'required': 'El campo semestre_id o semestre_actual_id es obligatorio.',
+            'does_not_exist': 'El semestre con ID {value} no existe.',
+            'incorrect_type': 'Debe proporcionar un ID válido para el semestre.'
+        }
     )
     
-    
-
     # Campos de solo lectura para mostrar información adicional
     nombre_completo = serializers.CharField(read_only=True)
     
@@ -120,15 +122,29 @@ class EstudianteSerializer(serializers.ModelSerializer):
         model = Estudiante
         fields = [
             'id', 'curp', 'nombre', 'apellidos', 
-            'semestre_actual', 'semestre_id',  # AGREGAR 'semestre_id' AQUÍ
+            'semestre_actual', 'semestre_id',
             'nombre_completo', 'fecha_registro', 'fecha_actualizacion'
         ]
         read_only_fields = ['fecha_registro', 'fecha_actualizacion']
         extra_kwargs = {
             'curp': {
-                'validators': [],  # Eliminar los validadores automáticos
+                'validators': [],
                 'error_messages': {
                     'unique': 'Ya existe un estudiante con esa CURP.',
+                    'required': 'El campo CURP es obligatorio.',
+                    'blank': 'La CURP no puede estar vacía.'
+                }
+            },
+            'nombre': {
+                'error_messages': {
+                    'required': 'El campo nombre es obligatorio.',
+                    'blank': 'El nombre no puede estar vacío.'
+                }
+            },
+            'apellidos': {
+                'error_messages': {
+                    'required': 'El campo apellidos es obligatorio.',
+                    'blank': 'Los apellidos no pueden estar vacíos.'
                 }
             }
         }
@@ -139,7 +155,6 @@ class EstudianteSerializer(serializers.ModelSerializer):
         if hasattr(self, 'fields'):
             curp_field = self.fields.get('curp')
             if curp_field:
-                # Filtrar y eliminar el validador UniqueValidator
                 curp_field.validators = [
                     v for v in curp_field.validators 
                     if not (hasattr(v, 'code') and v.code == 'unique')
@@ -149,7 +164,9 @@ class EstudianteSerializer(serializers.ModelSerializer):
         """
         Validación personalizada para CURP única
         """
-        # Verificar si ya existe un estudiante con esta CURP
+        if not value or not value.strip():
+            raise serializers.ValidationError("La CURP no puede estar vacía.")
+            
         if not self.instance:  # Para creación
             if Estudiante.objects.filter(curp=value).exists():
                 raise serializers.ValidationError(
@@ -165,10 +182,32 @@ class EstudianteSerializer(serializers.ModelSerializer):
     
     def validate(self, data):
         """
-        Validaciones adicionales
+        Validaciones adicionales y soporte para semestre_actual_id
         """
-        # Para creación/actualización, semestre_actual debe ser un ID
-        # El campo es read_only en la respuesta, pero para escritura recibe un ID
+        request = self.context.get('request')
+        if request:
+            # Verificar si enviaron semestre_actual_id en lugar de semestre_id
+            if 'semestre_actual_id' in request.data and 'semestre_id' not in request.data:
+                # Mapear semestre_actual_id a semestre_id
+                try:
+                    semestre_id = int(request.data.get('semestre_actual_id'))
+                    semestre = Semestre.objects.get(pk=semestre_id)
+                    data['semestre_actual'] = semestre
+                except (ValueError, TypeError):
+                    raise serializers.ValidationError({
+                        'semestre_actual_id': 'El campo semestre_actual_id debe ser un número entero válido.'
+                    })
+                except Semestre.DoesNotExist:
+                    raise serializers.ValidationError({
+                        'semestre_actual_id': f'El semestre con ID {request.data.get("semestre_actual_id")} no existe.'
+                    })
+        
+        # Validar que semestre_id esté presente si no vino semestre_actual_id
+        if 'semestre_actual' not in data and 'semestre_id' not in request.data:
+            raise serializers.ValidationError({
+                'semestre_id': 'El campo semestre_id o semestre_actual_id es obligatorio.'
+            })
+            
         return data
     
     def create(self, validated_data):
@@ -187,8 +226,7 @@ class EstudianteSerializer(serializers.ModelSerializer):
                     'error': 'Ya existe un registro con estos datos'
                 })
             raise e
-
-
+        
 class NotaSerializer(serializers.ModelSerializer):
     """Serializer para Nota con todas las relaciones anidadas"""
     # Usar los serializers completos para cada relación
