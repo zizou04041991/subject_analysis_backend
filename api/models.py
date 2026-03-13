@@ -2,6 +2,72 @@ from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 from datetime import date
 
+
+# models.py
+from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
+#from django.db import models
+
+class UsuarioManager(BaseUserManager):
+    def create_user(self, numero, password=None, **extra_fields):
+        if not numero:
+            raise ValueError('El número es obligatorio')
+        
+        user = self.model(numero=numero, **extra_fields)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+    
+    def create_superuser(self, numero, password=None, **extra_fields):
+        extra_fields.setdefault('is_staff', True)
+        extra_fields.setdefault('is_superuser', True)
+        
+        return self.create_user(numero, password, **extra_fields)
+
+class Usuario(AbstractBaseUser, PermissionsMixin):
+    numero = models.CharField(max_length=20, unique=True)
+    nombre = models.CharField(max_length=100)
+    email = models.EmailField(blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+    is_staff = models.BooleanField(default=False)
+    fecha_registro = models.DateTimeField(auto_now_add=True)
+    
+    objects = UsuarioManager()
+    
+    USERNAME_FIELD = 'numero'
+    REQUIRED_FIELDS = ['nombre']
+    
+    def __str__(self):
+        return self.numero
+    
+    def get_full_name(self):
+        return self.nombre
+    
+    def get_short_name(self):
+        return self.nombre
+    
+
+    
+    
+class TCP(models.Model):
+    """
+    Modelo para TCP (Trabajo Común de Prácticas)
+    """
+    numero = models.IntegerField(
+        unique=True,
+        verbose_name="Número de TCP",
+        help_text="Número único del TCP (ej: 1, 2, 3, etc.)"
+    )
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    fecha_actualizacion = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "TCP"
+        verbose_name_plural = "TCPs"
+        ordering = ['numero']
+
+    def __str__(self):
+        return f"TCP {self.numero}"
+
 class Semestre(models.Model):
     """Modelo para gestionar los semestres académicos"""
     
@@ -64,6 +130,7 @@ class Estudiante(models.Model):
         """Retorna la CURP del estudiante"""
         return self.curp
 
+# models.py
 class Nota(models.Model):
     estudiante = models.ForeignKey(
         Estudiante, 
@@ -82,6 +149,12 @@ class Nota(models.Model):
         verbose_name="Semestre en que cursó",
         editable=False
     )
+    tcp = models.ForeignKey(
+        TCP,
+        on_delete=models.PROTECT,
+        related_name='notas',
+        verbose_name="TCP asociado"
+    )
 
     nota = models.DecimalField(
         max_digits=5, 
@@ -91,17 +164,21 @@ class Nota(models.Model):
     fecha_registro = models.DateTimeField(auto_now_add=True)
     fecha_actualizacion = models.DateTimeField(auto_now=True)
 
-
     class Meta:
         verbose_name = "Nota"
         verbose_name_plural = "Notas"
-        unique_together = ['estudiante', 'asignatura', 'semestre_cursado']
+        # CAMBIADO: Unicidad por estudiante + tcp + semestre + asignatura
+        unique_together = ['estudiante', 'tcp', 'semestre_cursado', 'asignatura']
         ordering = ['estudiante', 'asignatura']
 
     def __str__(self):
-        return f"{self.estudiante} - {self.asignatura} - {self.semestre_cursado}: {self.nota}"
+        return f"{self.estudiante} - {self.asignatura} - TCP: {self.tcp.numero} - {self.semestre_cursado}: {self.nota}"
     
     def save(self, *args, **kwargs):
+        # Validar que tenga TCP
+        if not self.tcp_id:
+            raise ValueError("El TCP es obligatorio")
+        
         # Si no tiene semestre cursado asignado, usar el semestre actual del estudiante
         if not self.semestre_cursado_id and self.estudiante:
             self.semestre_cursado = self.estudiante.semestre_actual

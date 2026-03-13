@@ -3,12 +3,57 @@ from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
 from django.db import IntegrityError, models
 from django_filters.rest_framework import DjangoFilterBackend
-from .models import Semestre, Asignatura, Estudiante, Nota
+from .models import Semestre, Asignatura, Estudiante, Nota,TCP
 from .serializers import (
     SemestreSerializer, AsignaturaSerializer, 
-    EstudianteSerializer, NotaSerializer, PaginacionPersonalizada
+    EstudianteSerializer, NotaSerializer, PaginacionPersonalizada, TCPSerializer
 )
 from .filters import SemestreFilter, AsignaturaFilter, EstudianteFilter, NotaFilter
+
+# views.py
+
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework_simplejwt.tokens import RefreshToken
+from .serializers import UsuarioSerializer, LoginSerializer
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def registro(request):
+    serializer = UsuarioSerializer(data=request.data)
+    if serializer.is_valid():
+        user = serializer.save()
+        refresh = RefreshToken.for_user(user)
+        
+        return Response({
+            'user': UsuarioSerializer(user).data,
+            'refresh': str(refresh),
+            'access': str(refresh.access_token),
+        }, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def login(request):
+    serializer = LoginSerializer(data=request.data)
+    
+    if serializer.is_valid():
+        user = serializer.validated_data['user']
+        refresh = RefreshToken.for_user(user)
+        
+        return Response({
+            'user': UsuarioSerializer(user).data,
+            'refresh': str(refresh),
+            'access': str(refresh.access_token),
+        })
+    
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def perfil(request):
+    serializer = UsuarioSerializer(request.user)
+    return Response(serializer.data)
 
 
 class SemestreViewSet(viewsets.ModelViewSet):
@@ -133,10 +178,10 @@ class AsignaturaViewSet(viewsets.ModelViewSet):
     ordering = ['nombre']
 
 
+# views.py (parte de EstudianteViewSet)
 class EstudianteViewSet(viewsets.ModelViewSet):
     queryset = Estudiante.objects.all().select_related('semestre_actual')
     serializer_class = EstudianteSerializer
-    #pagination_class = PaginacionPersonalizada
     
     # Filtros
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -160,29 +205,6 @@ class EstudianteViewSet(viewsets.ModelViewSet):
     
     def create(self, request, *args, **kwargs):
         try:
-            # Verificar campos requeridos manualmente para mensajes específicos
-            campos_requeridos = ['curp', 'nombre', 'apellidos']
-            errores = {}
-            
-            # Verificar campos requeridos
-            for campo in campos_requeridos:
-                if campo not in request.data or not request.data.get(campo):
-                    errores[campo] = f'El campo {campo} es obligatorio.'
-            
-            # Verificar semestre (puede venir como semestre_id o semestre_actual_id)
-            if 'semestre_id' not in request.data and 'semestre_actual_id' not in request.data:
-                errores['semestre_id'] = 'El campo semestre_id o semestre_actual_id es obligatorio.'
-            elif 'semestre_actual_id' in request.data:
-                # Validar que semestre_actual_id sea un número
-                try:
-                    int(request.data.get('semestre_actual_id'))
-                except (ValueError, TypeError):
-                    errores['semestre_actual_id'] = 'El campo semestre_actual_id debe ser un número entero válido.'
-            
-            if errores:
-                return Response(errores, status=status.HTTP_400_BAD_REQUEST)
-            
-            # Continuar con la creación normal
             serializer = self.get_serializer(data=request.data)
             serializer.is_valid(raise_exception=True)
             self.perform_create(serializer)
@@ -224,6 +246,12 @@ class EstudianteViewSet(viewsets.ModelViewSet):
                 self._format_error_response(e),
                 status=status.HTTP_400_BAD_REQUEST
             )
+            
+        except IntegrityError as e:
+            return Response(
+                self._format_error_response(e),
+                status=status.HTTP_400_BAD_REQUEST
+            )
     
     def destroy(self, request, *args, **kwargs):
         try:
@@ -250,58 +278,202 @@ class EstudianteViewSet(viewsets.ModelViewSet):
             )
     
     def _format_error_response(self, error):
-        """Formatea los errores para dar mensajes más específicos"""
-        if hasattr(error, 'detail') and isinstance(error.detail, dict):
-            # Ya es un diccionario de errores por campo
-            return error.detail
+        """
+        Formatea los errores para dar mensajes más específicos
+        """
+        if hasattr(error, 'detail'):
+            # Si el error ya tiene el formato que queremos (con 'error')
+            if isinstance(error.detail, dict) and 'error' in error.detail:
+                if isinstance(error.detail['error'], list):
+                    return {'error': error.detail['error'][0]}
+                return {'error': error.detail['error']}
+            
+            # Si es un diccionario de errores por campo
+            if isinstance(error.detail, dict):
+                # Verificar si es el error específico de CURP
+                if 'curp' in error.detail:
+                    curp_errors = error.detail['curp']
+                    if isinstance(curp_errors, list):
+                        return {'error': curp_errors[0]}
+                    return {'error': str(curp_errors)}
+                
+                # Para otros campos, devolver el primer error encontrado
+                for field, errors in error.detail.items():
+                    if errors:
+                        if isinstance(errors, list):
+                            return {'error': f"{field}: {errors[0]}"}
+                        return {'error': f"{field}: {str(errors)}"}
+            
+            # Si es una lista de errores
+            elif isinstance(error.detail, list):
+                return {'error': str(error.detail[0]) if error.detail else 'Error de validación'}
+            
+            # Si es un string
+            elif isinstance(error.detail, str):
+                return {'error': error.detail}
         
+        # Si es IntegrityError
+        if isinstance(error, IntegrityError):
+            error_str = str(error).lower()
+            if "unique constraint" in error_str or "duplicate key" in error_str:
+                if "curp" in error_str:
+                    return {'error': 'Ya existe un estudiante con esa CURP.'}
+                return {'error': 'Ya existe un registro con estos datos'}
+            return {'error': 'Error de integridad en la base de datos'}
+        
+        # Por defecto
+        return {'error': str(error)}
+    
+class TCPViewSet(viewsets.ModelViewSet):
+    """ViewSet para TCP"""
+    queryset = TCP.objects.all()
+    serializer_class = TCPSerializer
+    
+    # Filtros
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    # filterset_class = TCPFilter  # Si tienes un filtro personalizado
+    search_fields = ['numero']
+    ordering_fields = ['id', 'numero', 'fecha_creacion']
+    ordering = ['numero']
+    
+    def create(self, request, *args, **kwargs):
+        try:
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+            
+            headers = self.get_success_headers(serializer.data)
+            return Response(
+                serializer.data,
+                status=status.HTTP_201_CREATED,
+                headers=headers
+            )
+            
+        except ValidationError as e:
+            return Response(
+                self._format_error_response(e),
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        except IntegrityError as e:
+            return Response(
+                self._format_error_response(e),
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+    def update(self, request, *args, **kwargs):
+        try:
+            partial = kwargs.pop('partial', False)
+            instance = self.get_object()
+            serializer = self.get_serializer(instance, data=request.data, partial=partial)
+            serializer.is_valid(raise_exception=True)
+            self.perform_update(serializer)
+            
+            return Response(
+                serializer.data,
+                status=status.HTTP_200_OK
+            )
+            
+        except ValidationError as e:
+            return Response(
+                self._format_error_response(e),
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        except IntegrityError as e:
+            return Response(
+                self._format_error_response(e),
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+    def destroy(self, request, *args, **kwargs):
+        try:
+            instance = self.get_object()
+            
+            # Aquí puedes agregar validaciones adicionales antes de eliminar
+            # Por ejemplo, verificar si hay asignaturas usando este TCP
+            
+            self.perform_destroy(instance)
+            
+            return Response(
+                {'error': 'TCP eliminado correctamente'},
+                status=status.HTTP_200_OK
+            )
+            
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+    def _format_error_response(self, error):
+        """
+        Formatear errores para que siempre tengan la estructura {'error': 'mensaje'}
+        """
+        if hasattr(error, 'detail') and isinstance(error.detail, dict):
+            # Si ya tiene el formato {'error': 'mensaje'}
+            if 'error' in error.detail:
+                if isinstance(error.detail['error'], list):
+                    return {'error': error.detail['error'][0]}
+                return {'error': error.detail['error']}
+            
+            # Si viene con formato {'numero': ['mensaje']}
+            for field, errors in error.detail.items():
+                if errors:
+                    if isinstance(errors, list):
+                        return {'error': str(errors[0])}
+                    return {'error': str(errors)}
+        
+        # Si es ValidationError con detail como lista o string
         if isinstance(error, ValidationError):
             if hasattr(error, 'detail'):
                 if isinstance(error.detail, dict):
-                    # Convertir errores de lista a string para mejor legibilidad
-                    formatted_errors = {}
                     for field, errors in error.detail.items():
-                        if isinstance(errors, list):
-                            formatted_errors[field] = errors[0] if errors else 'Error de validación'
-                        else:
-                            formatted_errors[field] = str(errors)
-                    return formatted_errors
+                        if errors:
+                            if isinstance(errors, list):
+                                return {'error': str(errors[0])}
+                            return {'error': str(errors)}
                 elif isinstance(error.detail, list):
                     return {'error': str(error.detail[0]) if error.detail else 'Error de validación'}
                 elif isinstance(error.detail, str):
                     return {'error': error.detail}
         
+        # Si es IntegrityError
         if isinstance(error, IntegrityError):
             error_str = str(error).lower()
-            if "unique constraint" in error_str:
-                if "curp" in error_str:
-                    return {'curp': 'Ya existe un estudiante con esa CURP.'}
-                return {'error': 'Ya existe un registro con estos datos'}
+            if "unique constraint" in error_str or "duplicate key" in error_str:
+                return {'error': 'ya existe este tcp'}
             return {'error': 'Error de integridad en la base de datos'}
         
+        # Por defecto
         return {'error': str(error)}
 
 class NotaViewSet(viewsets.ModelViewSet):
-    queryset = Nota.objects.all().select_related('estudiante', 'asignatura', 'semestre_cursado')
+    queryset = Nota.objects.all().select_related(
+        'estudiante', 'asignatura', 'semestre_cursado', 'tcp'
+    )
     serializer_class = NotaSerializer
-    #pagination_class = PaginacionPersonalizada
     
-    # Filtros
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    ffilter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = NotaFilter
     search_fields = [
         'estudiante__nombre', 
         'estudiante__apellidos',
-        'semestre__numero',
+        'semestre_cursado__numero',
         'asignatura__nombre',
+        'tcp__numero',
     ]
-    ordering_fields = ['id', 'nota', 'fecha_registro','estudiante__apellidos', 'estudiante__nombre', 'asignatura__nombre', 'semestre__numero']
+    ordering_fields = [
+        'id', 'nota', 'fecha_registro',
+        'estudiante__apellidos', 'estudiante__nombre',
+        'asignatura__nombre', 'semestre_cursado__numero',
+        'tcp__numero'
+    ]
     ordering = ['-fecha_registro']
     
     def get_queryset(self):
         queryset = super().get_queryset()
         
-        # Filtros adicionales personalizados
         nombre_completo = self.request.query_params.get('estudiante_nombre_completo')
         if nombre_completo:
             queryset = queryset.filter(

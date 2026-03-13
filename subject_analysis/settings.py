@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
+from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -136,7 +137,35 @@ REST_FRAMEWORK = {
 }
 
 
+
+
 '''
+
+
+
+# Modelo de usuario personalizado
+AUTH_USER_MODEL = 'api.Usuario'
+
+# Backend de autenticación
+AUTHENTICATION_BACKENDS = [
+    'api.authentication.NumeroAuthBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
+
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'AUTH_HEADER_TYPES': ('Bearer',),
+    'USER_ID_FIELD': 'numero',
+    'USER_ID_CLAIM': 'user_numero',
+}
+
+# settings.py
+AUTHENTICATION_BACKENDS = [
+    'tu_app.authentication.NumeroAuthBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
 CORS_ALLOWED_ORIGINS = ["http://localhost:4200"]
 
 

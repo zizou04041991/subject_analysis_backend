@@ -8,6 +8,49 @@ from decimal import Decimal
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
+
+# serializers.py
+from rest_framework import serializers
+from django.contrib.auth import authenticate
+from .models import Usuario
+
+class UsuarioSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Usuario
+        fields = ('id', 'numero', 'nombre', 'email', 'password')
+        extra_kwargs = {'password': {'write_only': True}}
+    
+    def create(self, validated_data):
+        user = Usuario.objects.create_user(
+            numero=validated_data['numero'],
+            nombre=validated_data['nombre'],
+            email=validated_data.get('email', ''),
+            password=validated_data['password']
+        )
+        return user
+
+class LoginSerializer(serializers.Serializer):
+    numero = serializers.CharField()
+    password = serializers.CharField(write_only=True)
+    
+    def validate(self, data):
+        numero = data.get('numero')
+        password = data.get('password')
+        
+        if numero and password:
+            user = authenticate(numero=numero, password=password)
+            
+            if user:
+                if not user.is_active:
+                    raise serializers.ValidationError('Usuario inactivo')
+                data['user'] = user
+            else:
+                raise serializers.ValidationError('Credenciales incorrectas')
+        else:
+            raise serializers.ValidationError('Debe proporcionar número y contraseña')
+        
+        return data
+
 class PaginacionPersonalizada(PageNumberPagination):
     page_size = 10  # Elementos por página
     page_size_query_param = 'page_size'  # Permitir al cliente cambiar el tamaño
@@ -97,7 +140,7 @@ class SemestreSerializer(serializers.ModelSerializer):
                 })
             raise e
 
-
+# serializers.py (parte de EstudianteSerializer)
 class EstudianteSerializer(serializers.ModelSerializer):
     # Usar SemestreSerializer para mostrar el semestre como objeto anidado
     semestre_actual = SemestreSerializer(read_only=True)
@@ -107,9 +150,8 @@ class EstudianteSerializer(serializers.ModelSerializer):
         source='semestre_actual',
         queryset=Semestre.objects.all(),
         write_only=True,
-        required=True,
+        required=False,  # Cambiado a False porque lo validaremos manualmente
         error_messages={
-            'required': 'El campo semestre_id o semestre_actual_id es obligatorio.',
             'does_not_exist': 'El semestre con ID {value} no existe.',
             'incorrect_type': 'Debe proporcionar un ID válido para el semestre.'
         }
@@ -128,11 +170,13 @@ class EstudianteSerializer(serializers.ModelSerializer):
         read_only_fields = ['fecha_registro', 'fecha_actualizacion']
         extra_kwargs = {
             'curp': {
-                'validators': [],
+                'validators': [],  # Eliminar validadores automáticos
                 'error_messages': {
-                    'unique': 'Ya existe un estudiante con esa CURP.',
+                    'unique': 'Ya existe un estudiante con la CURP {curp}.',
                     'required': 'El campo CURP es obligatorio.',
-                    'blank': 'La CURP no puede estar vacía.'
+                    'blank': 'La CURP no puede estar vacía.',
+                    'max_length': 'La CURP debe tener exactamente 18 caracteres.',
+                    'min_length': 'La CURP debe tener exactamente 18 caracteres.'
                 }
             },
             'nombre': {
@@ -166,7 +210,16 @@ class EstudianteSerializer(serializers.ModelSerializer):
         """
         if not value or not value.strip():
             raise serializers.ValidationError("La CURP no puede estar vacía.")
-            
+        
+        # Validar formato de CURP (opcional - 18 caracteres alfanuméricos)
+        value = value.upper().strip()
+        if len(value) != 18:
+            raise serializers.ValidationError("La CURP debe tener exactamente 18 caracteres.")
+        
+        if not value.isalnum():
+            raise serializers.ValidationError("La CURP solo puede contener letras y números.")
+        
+        # Verificar unicidad
         if not self.instance:  # Para creación
             if Estudiante.objects.filter(curp=value).exists():
                 raise serializers.ValidationError(
@@ -185,28 +238,45 @@ class EstudianteSerializer(serializers.ModelSerializer):
         Validaciones adicionales y soporte para semestre_actual_id
         """
         request = self.context.get('request')
+        
+        # Manejar semestre (puede venir como semestre_id o semestre_actual_id)
+        semestre_id = None
+        
         if request:
-            # Verificar si enviaron semestre_actual_id en lugar de semestre_id
-            if 'semestre_actual_id' in request.data and 'semestre_id' not in request.data:
-                # Mapear semestre_actual_id a semestre_id
+            # Verificar si enviaron semestre_actual_id
+            if 'semestre_actual_id' in request.data:
                 try:
                     semestre_id = int(request.data.get('semestre_actual_id'))
-                    semestre = Semestre.objects.get(pk=semestre_id)
-                    data['semestre_actual'] = semestre
                 except (ValueError, TypeError):
                     raise serializers.ValidationError({
                         'semestre_actual_id': 'El campo semestre_actual_id debe ser un número entero válido.'
                     })
-                except Semestre.DoesNotExist:
+            # Verificar si enviaron semestre_id
+            elif 'semestre_id' in request.data:
+                try:
+                    semestre_id = int(request.data.get('semestre_id'))
+                except (ValueError, TypeError):
                     raise serializers.ValidationError({
-                        'semestre_actual_id': f'El semestre con ID {request.data.get("semestre_actual_id")} no existe.'
+                        'semestre_id': 'El campo semestre_id debe ser un número entero válido.'
                     })
         
-        # Validar que semestre_id esté presente si no vino semestre_actual_id
-        if 'semestre_actual' not in data and 'semestre_id' not in request.data:
-            raise serializers.ValidationError({
-                'semestre_id': 'El campo semestre_id o semestre_actual_id es obligatorio.'
-            })
+        # Si encontramos un semestre_id, validar que exista y asignarlo
+        if semestre_id is not None:
+            try:
+                semestre = Semestre.objects.get(pk=semestre_id)
+                data['semestre_actual'] = semestre
+            except Semestre.DoesNotExist:
+                raise serializers.ValidationError({
+                    'semestre_id' if 'semestre_id' in request.data else 'semestre_actual_id': 
+                    f'El semestre con ID {semestre_id} no existe.'
+                })
+        else:
+            # Si no hay semestre en la petición, verificar si es creación o actualización
+            if not self.instance:  # Creación - semestre es obligatorio
+                raise serializers.ValidationError({
+                    'semestre_id': 'El campo semestre_id o semestre_actual_id es obligatorio.'
+                })
+            # En actualización, si no viene semestre, mantener el actual
             
         return data
     
@@ -217,22 +287,123 @@ class EstudianteSerializer(serializers.ModelSerializer):
         try:
             return super().create(validated_data)
         except IntegrityError as e:
-            if "unique constraint" in str(e).lower():
+            if "unique constraint" in str(e).lower() or "duplicate key" in str(e).lower():
                 if "curp" in str(e).lower():
+                    curp_value = validated_data.get('curp', 'desconocida')
                     raise serializers.ValidationError({
-                        'error': 'Ya existe un estudiante con esa CURP.'
+                        'error': f'Ya existe un estudiante con la CURP {curp_value}.'
+                    })
+                raise serializers.ValidationError({
+                    'error': 'Ya existe un registro con estos datos'
+                })
+            raise e
+    
+    def update(self, instance, validated_data):
+        """
+        Sobrescribir update para manejar el error de integridad
+        """
+        try:
+            return super().update(instance, validated_data)
+        except IntegrityError as e:
+            if "unique constraint" in str(e).lower() or "duplicate key" in str(e).lower():
+                if "curp" in str(e).lower():
+                    curp_value = validated_data.get('curp', instance.curp)
+                    raise serializers.ValidationError({
+                        'error': f'Ya existe un estudiante con la CURP {curp_value}.'
                     })
                 raise serializers.ValidationError({
                     'error': 'Ya existe un registro con estos datos'
                 })
             raise e
         
+class TCPSerializer(serializers.ModelSerializer):
+    """Serializer para TCP"""
+    
+    class Meta:
+        model = TCP
+        fields = ['id', 'numero', 'fecha_creacion', 'fecha_actualizacion']
+        read_only_fields = ['fecha_creacion', 'fecha_actualizacion']
+        extra_kwargs = {
+            'numero': {
+                'validators': [],  # Eliminar validadores automáticos
+                'error_messages': {
+                    'unique': 'ya existe este tcp con numero {numero}',
+                }
+            }
+        }
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Eliminar el validador UniqueValidator para numero
+        if hasattr(self, 'fields'):
+            numero_field = self.fields.get('numero')
+            if numero_field:
+                numero_field.validators = [
+                    v for v in numero_field.validators 
+                    if not (hasattr(v, 'code') and v.code == 'unique')
+                ]
+    
+    def validate_numero(self, value):
+        """
+        Validación personalizada para el número de TCP
+        """
+        # Verificar si ya existe un TCP con este número (validación manual)
+        if not self.instance:  # Para creación
+            if TCP.objects.filter(numero=value).exists():
+                raise serializers.ValidationError(
+                    f'ya existe este tcp con numero {value}'
+                )
+        else:  # Para actualización
+            if value != self.instance.numero:
+                if TCP.objects.filter(numero=value).exists():
+                    raise serializers.ValidationError(
+                        f'ya existe este tcp con numero {value}'
+                    )
+        return value
+    
+    def create(self, validated_data):
+        """
+        Sobrescribir create para manejar el error de integridad
+        """
+        try:
+            return super().create(validated_data)
+        except IntegrityError as e:
+            if "unique constraint" in str(e).lower() or "duplicate key" in str(e).lower():
+                if 'numero' in str(e).lower():
+                    raise serializers.ValidationError({
+                        'error': f'ya existe este tcp con numero {validated_data.get("numero")}'
+                    })
+                raise serializers.ValidationError({
+                    'error': 'Ya existe un TCP con esos datos.'
+                })
+            raise e
+    
+    def update(self, instance, validated_data):
+        """
+        Sobrescribir update para manejar el error de integridad
+        """
+        try:
+            return super().update(instance, validated_data)
+        except IntegrityError as e:
+            if "unique constraint" in str(e).lower() or "duplicate key" in str(e).lower():
+                if 'numero' in str(e).lower():
+                    raise serializers.ValidationError({
+                        'error': f'Ya existe este tcp con numero {validated_data.get("numero")}'
+                    })
+                raise serializers.ValidationError({
+                    'error': 'Ya existe un TCP con esos datos.'
+                })
+            raise e
+
+
+
 class NotaSerializer(serializers.ModelSerializer):
-    """Serializer para Nota con todas las relaciones anidadas"""
-    # Usar los serializers completos para cada relación
+    """Serializer para Nota con todas las relaciones"""
+    # Serializers completos para lectura
     estudiante = EstudianteSerializer(read_only=True)
     asignatura = AsignaturaSerializer(read_only=True)
     semestre_cursado = SemestreSerializer(read_only=True)
+    tcp = TCPSerializer(read_only=True)
     
     # Campos para escritura (solo IDs)
     estudiante_id = serializers.PrimaryKeyRelatedField(
@@ -244,6 +415,13 @@ class NotaSerializer(serializers.ModelSerializer):
         queryset=Asignatura.objects.all(),
         source='asignatura',
         write_only=True
+    )
+    tcp_id = serializers.PrimaryKeyRelatedField(
+        queryset=TCP.objects.all(),
+        source='tcp',
+        write_only=True,
+        required=True,
+        allow_null=False
     )
 
     nota = serializers.DecimalField(
@@ -259,73 +437,81 @@ class NotaSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'estudiante', 'estudiante_id', 
             'asignatura', 'asignatura_id',
-            'semestre_cursado', 'nota',
-            'fecha_registro', 'fecha_actualizacion'
+            'semestre_cursado', 'tcp', 'tcp_id',
+            'nota', 'fecha_registro', 'fecha_actualizacion'
         ]
         read_only_fields = ['semestre_cursado', 'fecha_registro', 'fecha_actualizacion']
     
     def validate(self, data):
         """
-        Validación personalizada para evitar el error de unique_together
+        Validación personalizada para la combinación única:
+        estudiante + tcp + semestre + asignatura
         """
-        # Para escritura, obtenemos los objetos de los campos write_only
-        estudiante = data.get('estudiante')  # Viene de estudiante_id
-        asignatura = data.get('asignatura')  # Viene de asignatura_id
+        estudiante = data.get('estudiante')
+        asignatura = data.get('asignatura')
+        tcp = data.get('tcp')
+        
+        # Validar que TCP sea obligatorio
+        if not tcp:
+            raise serializers.ValidationError({
+                'tcp_id': 'El TCP es obligatorio.'
+            })
         
         if not self.instance:  # Creación
-            if estudiante and asignatura:
+            if estudiante and asignatura and tcp:
                 semestre_actual = estudiante.semestre_actual
                 
+                # Validar combinación única: estudiante + tcp + semestre + asignatura
                 if Nota.objects.filter(
                     estudiante=estudiante,
-                    asignatura=asignatura,
-                    semestre_cursado=semestre_actual
+                    tcp=tcp,
+                    semestre_cursado=semestre_actual,
+                    asignatura=asignatura
                 ).exists():
                     raise serializers.ValidationError({
-                        'error': f'El estudiante {estudiante.nombre} {estudiante.apellidos} ya tiene una nota en {asignatura.nombre} para el {semestre_actual.get_numero_display()}.'
+                        'error': f'El estudiante {estudiante.nombre} {estudiante.apellidos} ya tiene una nota para el TCP {tcp.numero} en la asignatura {asignatura.nombre} para el semestre {semestre_actual.numero}.'
                     })
                 
-                # Asignar el semestre cursado automáticamente
                 data['semestre_cursado'] = semestre_actual
         
         else:  # Actualización
-            estudiante_actual = estudiante or self.instance.estudiante
-            asignatura_actual = asignatura or self.instance.asignatura
+            # Verificar qué campos cambiaron
+            estudiante_cambiado = estudiante and estudiante != self.instance.estudiante
+            asignatura_cambiado = asignatura and asignatura != self.instance.asignatura
+            tcp_cambiado = tcp and tcp != self.instance.tcp
             
-            if estudiante != self.instance.estudiante or asignatura != self.instance.asignatura:
-                semestre_actual = estudiante_actual.semestre_actual
+            # Si cambió algún campo de la combinación única
+            if estudiante_cambiado or asignatura_cambiado or tcp_cambiado:
+                semestre_actual = estudiante.semestre_actual if estudiante else self.instance.estudiante.semestre_actual
                 
+                estudiante_validar = estudiante if estudiante else self.instance.estudiante
+                asignatura_validar = asignatura if asignatura else self.instance.asignatura
+                tcp_validar = tcp if tcp else self.instance.tcp
+                
+                # Validar que no exista la combinación
                 if Nota.objects.filter(
-                    estudiante=estudiante_actual,
-                    asignatura=asignatura_actual,
-                    semestre_cursado=semestre_actual
+                    estudiante=estudiante_validar,
+                    tcp=tcp_validar,
+                    semestre_cursado=semestre_actual,
+                    asignatura=asignatura_validar
                 ).exclude(pk=self.instance.pk).exists():
                     raise serializers.ValidationError({
-                        'error': 'Ya existe una nota para este estudiante, asignatura y semestre.'
+                        'error': f'Ya existe una nota para el estudiante {estudiante_validar.nombre} {estudiante_validar.apellidos}, TCP {tcp_validar.numero}, asignatura {asignatura_validar.nombre} en el semestre {semestre_actual.numero}.'
                     })
                 
                 # Actualizar el semestre cursado si cambió el estudiante
-                if estudiante != self.instance.estudiante:
+                if estudiante_cambiado:
                     data['semestre_cursado'] = semestre_actual
         
         return data
     
     def create(self, validated_data):
-        """
-        Sobrescribir create para manejar el error de integridad
-        """
         try:
             return super().create(validated_data)
         except IntegrityError as e:
             if "unique constraint" in str(e).lower():
+                # Mensaje genérico para error de unicidad
                 raise serializers.ValidationError({
-                    'error': 'No se puede crear la nota porque ya existe una para este estudiante, asignatura y semestre.'
+                    'error': 'Ya existe una nota con esta combinación de estudiante, TCP, asignatura y semestre.'
                 })
             raise e
-    
-    def to_representation(self, instance):
-        """
-        Personalizar la representación de los datos
-        """
-        representation = super().to_representation(instance)
-        return representation

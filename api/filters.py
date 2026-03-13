@@ -79,6 +79,10 @@ class EstudianteFilter(FilterSet):
             models.Q(apellidos__icontains=value)
         )
 
+class ContieneFilter(CharFilter):
+    def __init__(self, *args, **kwargs):
+        kwargs['lookup_expr'] = 'icontains'
+        super().__init__(*args, **kwargs)
 
 class NotaFilter(FilterSet):
     """Filtros para Nota"""
@@ -93,7 +97,12 @@ class NotaFilter(FilterSet):
     
     # Filtros por semestre
     semestre_numero = NumberFilter(field_name='semestre_cursado__numero')
-    semestre_nombre = ContieneFilter(field_name='semestre_cursado__numero')
+    
+    # Filtros por TCP
+    tcp_id = NumberFilter(field_name='tcp__id', lookup_expr='exact')
+    tcp_numero = NumberFilter(field_name='tcp__numero', lookup_expr='exact')
+    tcp_numero_min = NumberFilter(field_name='tcp__numero', lookup_expr='gte')
+    tcp_numero_max = NumberFilter(field_name='tcp__numero', lookup_expr='lte')
     
     # Rango de notas
     nota_min = NumberFilter(field_name='nota', lookup_expr='gte')
@@ -102,8 +111,6 @@ class NotaFilter(FilterSet):
     # Filtros de fecha
     fecha_registro_desde = DateFilter(field_name='fecha_registro', lookup_expr='gte')
     fecha_registro_hasta = DateFilter(field_name='fecha_registro', lookup_expr='lte')
-    fecha_actualizacion_desde = DateFilter(field_name='fecha_actualizacion', lookup_expr='gte')
-    fecha_actualizacion_hasta = DateFilter(field_name='fecha_actualizacion', lookup_expr='lte')
     
     class Meta:
         model = Nota
@@ -111,11 +118,12 @@ class NotaFilter(FilterSet):
             'estudiante': ['exact'],
             'asignatura': ['exact'],
             'semestre_cursado': ['exact'],
+            'tcp': ['exact'],
             'nota': ['exact', 'gte', 'lte'],
         }
     
     def filter_estudiante_nombre_completo(self, queryset, name, value):
-        """Filtro para buscar por nombre completo del estudiante en notas"""
+        """Filtro para buscar por nombre completo del estudiante"""
         return queryset.filter(
             models.Q(estudiante__nombre__icontains=value) |
             models.Q(estudiante__apellidos__icontains=value)
