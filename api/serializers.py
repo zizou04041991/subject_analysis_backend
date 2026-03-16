@@ -72,6 +72,111 @@ class AsignaturaSerializer(serializers.ModelSerializer):
     class Meta:
         model = Asignatura
         fields = '__all__'
+        extra_kwargs = {
+            'nombre': {
+                'validators': [],  # Eliminar validadores automáticos
+                'error_messages': {
+                    'unique': 'Ya existe una asignatura con el nombre {nombre}.',
+                    'required': 'El campo nombre es obligatorio.',
+                    'blank': 'El nombre no puede estar vacío.',
+                    'max_length': 'El nombre no puede exceder los 100 caracteres.'
+                }
+            },
+            'color': {
+                'error_messages': {
+                    'max_length': 'El código de color debe tener exactamente 7 caracteres (incluyendo #).',
+                    'min_length': 'El código de color debe tener exactamente 7 caracteres (incluyendo #).'
+                }
+            }
+        }
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Eliminar el validador UniqueValidator para nombre
+        if hasattr(self, 'fields'):
+            nombre_field = self.fields.get('nombre')
+            if nombre_field:
+                nombre_field.validators = [
+                    v for v in nombre_field.validators 
+                    if not (hasattr(v, 'code') and v.code == 'unique')
+                ]
+    
+    def validate_nombre(self, value):
+        """
+        Validación personalizada para nombre único
+        """
+        if not value or not value.strip():
+            raise serializers.ValidationError("El nombre no puede estar vacío.")
+        
+        # Limpiar el valor
+        value = value.strip()
+        
+        # Verificar unicidad
+        if not self.instance:  # Para creación
+            if Asignatura.objects.filter(nombre__iexact=value).exists():
+                raise serializers.ValidationError(
+                    f'Ya existe una asignatura con el nombre "{value}".'
+                )
+        else:  # Para actualización
+            if value.lower() != self.instance.nombre.lower():
+                if Asignatura.objects.filter(nombre__iexact=value).exists():
+                    raise serializers.ValidationError(
+                        f'Ya existe una asignatura con el nombre "{value}".'
+                    )
+        return value
+    
+    def validate_color(self, value):
+        """
+        Validación personalizada para código de color HEX
+        """
+        if value:
+            value = value.upper().strip()
+            
+            # Validar formato HEX
+            import re
+            hex_pattern = r'^#([A-Fa-f0-9]{6})$'
+            if not re.match(hex_pattern, value):
+                raise serializers.ValidationError(
+                    'El color debe estar en formato HEX válido (ej: #FF5733).'
+                )
+        
+        return value
+    
+    def create(self, validated_data):
+        """
+        Sobrescribir create para manejar el error de integridad
+        """
+        try:
+            return super().create(validated_data)
+        except IntegrityError as e:
+            if "unique constraint" in str(e).lower() or "duplicate key" in str(e).lower():
+                if "nombre" in str(e).lower():
+                    nombre = validated_data.get('nombre', 'desconocido')
+                    raise serializers.ValidationError({
+                        'error': f'Ya existe una asignatura con el nombre "{nombre}".'
+                    })
+                raise serializers.ValidationError({
+                    'error': 'Ya existe un registro con estos datos'
+                })
+            raise e
+    
+    def update(self, instance, validated_data):
+        """
+        Sobrescribir update para manejar el error de integridad
+        """
+        try:
+            return super().update(instance, validated_data)
+        except IntegrityError as e:
+            if "unique constraint" in str(e).lower() or "duplicate key" in str(e).lower():
+                if "nombre" in str(e).lower():
+                    nombre = validated_data.get('nombre', instance.nombre)
+                    raise serializers.ValidationError({
+                        'error': f'Ya existe una asignatura con el nombre "{nombre}".'
+                    })
+                raise serializers.ValidationError({
+                    'error': 'Ya existe un registro con estos datos'
+                })
+            raise e
 
 
 
@@ -150,7 +255,7 @@ class EstudianteSerializer(serializers.ModelSerializer):
         source='semestre_actual',
         queryset=Semestre.objects.all(),
         write_only=True,
-        required=False,  # Cambiado a False porque lo validaremos manualmente
+        required=False,
         error_messages={
             'does_not_exist': 'El semestre con ID {value} no existe.',
             'incorrect_type': 'Debe proporcionar un ID válido para el semestre.'
@@ -163,12 +268,22 @@ class EstudianteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Estudiante
         fields = [
-            'id', 'curp', 'nombre', 'apellidos', 
+            'id', 'numero_control', 'curp', 'nombre', 'apellidos', 
             'semestre_actual', 'semestre_id',
             'nombre_completo', 'fecha_registro', 'fecha_actualizacion'
         ]
         read_only_fields = ['fecha_registro', 'fecha_actualizacion']
         extra_kwargs = {
+            'numero_control': {
+                'validators': [],  # Eliminar validadores automáticos
+                'error_messages': {
+                    'unique': 'Ya existe un estudiante con el número de control {numero_control}.',
+                    'required': 'El campo número de control es obligatorio.',
+                    'blank': 'El número de control no puede estar vacío.',
+                    'max_length': 'El número de control debe tener exactamente 14 dígitos.',
+                    'min_length': 'El número de control debe tener exactamente 14 dígitos.'
+                }
+            },
             'curp': {
                 'validators': [],  # Eliminar validadores automáticos
                 'error_messages': {
@@ -195,14 +310,54 @@ class EstudianteSerializer(serializers.ModelSerializer):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Eliminar el validador UniqueValidator para CURP
+        # Eliminar validadores UniqueValidator para campos únicos
         if hasattr(self, 'fields'):
+            # Para número de control
+            numero_control_field = self.fields.get('numero_control')
+            if numero_control_field:
+                numero_control_field.validators = [
+                    v for v in numero_control_field.validators 
+                    if not (hasattr(v, 'code') and v.code == 'unique')
+                ]
+            
+            # Para CURP
             curp_field = self.fields.get('curp')
             if curp_field:
                 curp_field.validators = [
                     v for v in curp_field.validators 
                     if not (hasattr(v, 'code') and v.code == 'unique')
                 ]
+    
+    def validate_numero_control(self, value):
+        """
+        Validación personalizada para número de control único de 14 dígitos
+        """
+        if not value or not str(value).strip():
+            raise serializers.ValidationError("El número de control no puede estar vacío.")
+        
+        # Convertir a string y limpiar
+        value = str(value).strip()
+        
+        # Validar que sean exactamente 14 dígitos
+        if not value.isdigit():
+            raise serializers.ValidationError("El número de control debe contener solo dígitos.")
+        
+        if len(value) != 14:
+            raise serializers.ValidationError("El número de control debe tener exactamente 14 dígitos.")
+        
+        # Verificar unicidad
+        if not self.instance:  # Para creación
+            if Estudiante.objects.filter(numero_control=value).exists():
+                raise serializers.ValidationError(
+                    f'Ya existe un estudiante con el número de control {value}.'
+                )
+        else:  # Para actualización
+            if value != self.instance.numero_control:
+                if Estudiante.objects.filter(numero_control=value).exists():
+                    raise serializers.ValidationError(
+                        f'Ya existe un estudiante con el número de control {value}.'
+                    )
+        return value
     
     def validate_curp(self, value):
         """
@@ -288,7 +443,13 @@ class EstudianteSerializer(serializers.ModelSerializer):
             return super().create(validated_data)
         except IntegrityError as e:
             if "unique constraint" in str(e).lower() or "duplicate key" in str(e).lower():
-                if "curp" in str(e).lower():
+                error_str = str(e).lower()
+                if "numero_control" in error_str:
+                    numero_control = validated_data.get('numero_control', 'desconocida')
+                    raise serializers.ValidationError({
+                        'error': f'Ya existe un estudiante con el número de control {numero_control}.'
+                    })
+                elif "curp" in error_str:
                     curp_value = validated_data.get('curp', 'desconocida')
                     raise serializers.ValidationError({
                         'error': f'Ya existe un estudiante con la CURP {curp_value}.'
@@ -306,7 +467,13 @@ class EstudianteSerializer(serializers.ModelSerializer):
             return super().update(instance, validated_data)
         except IntegrityError as e:
             if "unique constraint" in str(e).lower() or "duplicate key" in str(e).lower():
-                if "curp" in str(e).lower():
+                error_str = str(e).lower()
+                if "numero_control" in error_str:
+                    numero_control = validated_data.get('numero_control', instance.numero_control)
+                    raise serializers.ValidationError({
+                        'error': f'Ya existe un estudiante con el número de control {numero_control}.'
+                    })
+                elif "curp" in error_str:
                     curp_value = validated_data.get('curp', instance.curp)
                     raise serializers.ValidationError({
                         'error': f'Ya existe un estudiante con la CURP {curp_value}.'

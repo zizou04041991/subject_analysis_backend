@@ -6,6 +6,7 @@ from datetime import date
 # models.py
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 #from django.db import models
+from django.core.validators import RegexValidator
 
 class UsuarioManager(BaseUserManager):
     def create_user(self, numero, password=None, **extra_fields):
@@ -46,7 +47,7 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
         return self.nombre
     
 
-    
+
     
 class TCP(models.Model):
     """
@@ -100,6 +101,12 @@ class Asignatura(models.Model):
 
 # models.py - Actualizar el modelo Estudiante
 class Estudiante(models.Model):
+    numero_control = models.CharField(
+        max_length=14, 
+        unique=True, 
+        verbose_name="Número de Control",
+        validators=[RegexValidator(r'^\d{14}$', 'El número de control debe tener exactamente 14 dígitos.')]
+    )
     curp = models.CharField(max_length=18, unique=True, verbose_name="CURP")
     nombre = models.CharField(max_length=50)
     apellidos = models.CharField(max_length=100)
@@ -118,7 +125,7 @@ class Estudiante(models.Model):
         ordering = ['apellidos', 'nombre']
 
     def __str__(self):
-        return f"{self.nombre} {self.apellidos} - {self.curp}"
+        return f"{self.numero_control} - {self.nombre} {self.apellidos}"
     
     @property
     def nombre_completo(self):
