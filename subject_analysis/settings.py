@@ -52,6 +52,8 @@ INSTALLED_APPS = [
     'rest_framework',
     'django_filters',
     'corsheaders',
+    'rest_framework.authtoken',
+    'usuarios',  # nuestra nueva app
     'api'
 ]
 
@@ -118,19 +120,34 @@ AUTH_PASSWORD_VALIDATORS = [
 
 REST_FRAMEWORK = {
     'COERCE_DECIMAL_TO_STRING': False,
-    #'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    #'PAGE_SIZE': 10,  # Número de elementos por página,
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    # 'DEFAULT_AUTHENTICATION_CLASSES': [
+    #    'rest_framework.authentication.TokenAuthentication',
+    #],
+    'PAGE_SIZE': 10,  # Número de elementos por página,
     'DEFAULT_FILTER_BACKENDS': [
         'django_filters.rest_framework.DjangoFilterBackend',
         'rest_framework.filters.SearchFilter',
         'rest_framework.filters.OrderingFilter',
     ],
-    'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    #'DEFAULT_AUTHENTICATION_CLASSES': (
+    #    'rest_framework_simplejwt.authentication.JWTAuthentication',
         # otras clases de autenticación si las necesitas
-    ),
+   # ),
+
+
+     'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+#    'DEFAULT_PERMISSION_CLASSES': [
+#        'rest_framework.permissions.IsAuthenticated',
+#    ]
 
 }
+
+
+
 
 '''
 REST_FRAMEWORK = {
@@ -148,43 +165,36 @@ REST_FRAMEWORK = {
 
 
 
-# Modelo de usuario personalizado
-AUTH_USER_MODEL = 'api.Usuario'
+#AUTH_USER_MODEL = 'usuarios.Usuario'
 
-# Backend de autenticación
+AUTH_USER_MODEL = 'usuarios.CustomUser'  # reemplaza 'mi_app' por el nombre de tu app
+
 AUTHENTICATION_BACKENDS = [
-    'api.authentication.NumeroAuthBackend',
-    'django.contrib.auth.backends.ModelBackend',
-]
-
-
-SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
-    'AUTH_HEADER_TYPES': ('Bearer',),
-    'USER_ID_FIELD': 'numero',
-    'USER_ID_CLAIM': 'user_numero',
-}
-
-# settings.py
-AUTHENTICATION_BACKENDS = [
-    'tu_app.authentication.NumeroAuthBackend',
-    'django.contrib.auth.backends.ModelBackend',
+    'usuarios.backends.CustomAuthBackend',
+    'django.contrib.auth.backends.ModelBackend',  # opcional, como respaldo
 ]
 CORS_ALLOWED_ORIGINS = ["http://localhost:4200"]
 
 
 # Internationalization
 # https://docs.djangoproject.com/en/6.0/topics/i18n/
+# Configuración regional para Tamaulipas, México
+LANGUAGE_CODE = 'es-mx'          # Español (México)
+TIME_ZONE = 'America/Matamoros'  # Zona horaria de Tamaulipas (CDT/CST)
+USE_I18N = True                  # Activar internacionalización
+USE_TZ = True                    # Usar zona horaria consciente (recomendado)
 
-LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
 
-USE_I18N = True
+'''
 
-USE_TZ = True
+# Configuración regional para Tamaulipas, México
+LANGUAGE_CODE = 'en-us'          # Español (México)
+TIME_ZONE = 'America/Chicago'  # Zona horaria de Tamaulipas (CDT/CST)
+USE_I18N = True                  # Activar internacionalización
+USE_TZ = True                    # Usar zona horaria consciente (recomendado)
 
+'''
 #python manage.py loaddata semestres_iniciales.json
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/

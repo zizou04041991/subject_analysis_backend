@@ -12,47 +12,22 @@ from rest_framework.response import Response
 # serializers.py
 from rest_framework import serializers
 from django.contrib.auth import authenticate
-from .models import Usuario
+from .models import *
+from usuarios.models import *
 
-class UsuarioSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Usuario
-        fields = ('id', 'numero', 'nombre', 'email', 'password')
-        extra_kwargs = {'password': {'write_only': True}}
-    
-    def create(self, validated_data):
-        user = Usuario.objects.create_user(
-            numero=validated_data['numero'],
-            nombre=validated_data['nombre'],
-            email=validated_data.get('email', ''),
-            password=validated_data['password']
-        )
-        return user
+from usuarios.models import *  # importa el modelo Usuario
+from usuarios.serializers import *  # importa el modelo Usuario
 
-class LoginSerializer(serializers.Serializer):
-    numero = serializers.CharField()
-    password = serializers.CharField(write_only=True)
-    
-    def validate(self, data):
-        numero = data.get('numero')
-        password = data.get('password')
-        
-        if numero and password:
-            user = authenticate(numero=numero, password=password)
-            
-            if user:
-                if not user.is_active:
-                    raise serializers.ValidationError('Usuario inactivo')
-                data['user'] = user
-            else:
-                raise serializers.ValidationError('Credenciales incorrectas')
-        else:
-            raise serializers.ValidationError('Debe proporcionar número y contraseña')
-        
-        return data
+
+# serializers.py
+from rest_framework import serializers
+from django.contrib.auth import get_user_model
+
+
+User = get_user_model()
 
 class PaginacionPersonalizada(PageNumberPagination):
-    page_size = 10  # Elementos por página
+    page_size = 2  # Elementos por página
     page_size_query_param = 'page_size'  # Permitir al cliente cambiar el tamaño
     max_page_size = 100  # Tamaño máximo permitido
     page_query_param = 'page'  # Nombre del parámetro para la página
@@ -245,7 +220,15 @@ class SemestreSerializer(serializers.ModelSerializer):
                 })
             raise e
 
+
+
+
+
+
+
 # serializers.py (parte de EstudianteSerializer)
+
+'''
 class EstudianteSerializer(serializers.ModelSerializer):
     # Usar SemestreSerializer para mostrar el semestre como objeto anidado
     semestre_actual = SemestreSerializer(read_only=True)
@@ -482,7 +465,42 @@ class EstudianteSerializer(serializers.ModelSerializer):
                     'error': 'Ya existe un registro con estos datos'
                 })
             raise e
-        
+'''
+class EstudianteSerializer(UserBaseSerializer):
+    semestre_actual = serializers.PrimaryKeyRelatedField(
+        queryset=Semestre.objects.all(),
+        required=False,
+        allow_null=True
+    )
+    # Opcional: mostrar el número del semestre
+    semestre_numero = serializers.SerializerMethodField(read_only=True)
+
+    class Meta(UserBaseSerializer.Meta):
+        model = User
+        fields = [
+            'id', 'numero_control', 'curp', 'semestre_actual', 'semestre_numero', 'first_name', 'last_name',  # ← agregar estos campos
+            'password', 'user_type'
+        ]
+        read_only_fields = ['user_type']
+
+    def get_semestre_numero(self, obj):
+        return obj.semestre_actual.numero if obj.semestre_actual else None
+
+    def validate(self, data):
+        data['user_type'] = 'student'
+        if not data.get('numero_control'):
+            raise serializers.ValidationError({"numero_control": "El estudiante debe tener número de control."})
+        # Validar formato CURP (opcional, ya lo hace el modelo)
+        curp = data.get('curp')
+        if curp and not self._validate_curp_format(curp):
+            raise serializers.ValidationError({"curp": "CURP inválida."})
+        return data
+
+    def _validate_curp_format(self, curp):
+        import re
+        pattern = r'^[A-Z]{4}\d{6}[A-Z]{6}\d{2}$'
+        return bool(re.match(pattern, curp))
+    
 class TCPSerializer(serializers.ModelSerializer):
     """Serializer para TCP"""
     
@@ -564,121 +582,33 @@ class TCPSerializer(serializers.ModelSerializer):
 
 
 
-class NotaSerializer(serializers.ModelSerializer):
-    """Serializer para Nota con todas las relaciones"""
-    # Serializers completos para lectura
-    estudiante = EstudianteSerializer(read_only=True)
-    asignatura = AsignaturaSerializer(read_only=True)
-    semestre_cursado = SemestreSerializer(read_only=True)
-    tcp = TCPSerializer(read_only=True)
-    
-    # Campos para escritura (solo IDs)
-    estudiante_id = serializers.PrimaryKeyRelatedField(
-        queryset=Estudiante.objects.all(),
-        source='estudiante',
-        write_only=True
-    )
-    asignatura_id = serializers.PrimaryKeyRelatedField(
-        queryset=Asignatura.objects.all(),
-        source='asignatura',
-        write_only=True
-    )
-    tcp_id = serializers.PrimaryKeyRelatedField(
-        queryset=TCP.objects.all(),
-        source='tcp',
-        write_only=True,
-        required=True,
-        allow_null=False
-    )
 
-    nota = serializers.DecimalField(
-        max_digits=5, 
-        decimal_places=2,
-        min_value=Decimal('0.0'),
-        max_value=Decimal('100.0'),
-        required=True
-    )
-    
+class NotaSerializer(serializers.ModelSerializer):
+    # Opcional: mostrar representación legible de las relaciones
+    estudiante_nombre = serializers.SerializerMethodField()
+    asignatura_nombre = serializers.CharField(source='asignatura.nombre', read_only=True)
+    semestre_cursado_numero = serializers.IntegerField(source='semestre_cursado.numero', read_only=True)
+    tcp_numero = serializers.IntegerField(source='tcp.numero', read_only=True)
+
     class Meta:
         model = Nota
         fields = [
-            'id', 'estudiante', 'estudiante_id', 
-            'asignatura', 'asignatura_id',
-            'semestre_cursado', 'tcp', 'tcp_id',
+            'id', 'estudiante', 'estudiante_nombre',
+            'asignatura', 'asignatura_nombre',
+            'semestre_cursado', 'semestre_cursado_numero',
+            'tcp', 'tcp_numero',
             'nota', 'fecha_registro', 'fecha_actualizacion'
         ]
-        read_only_fields = ['semestre_cursado', 'fecha_registro', 'fecha_actualizacion']
-    
-    def validate(self, data):
-        """
-        Validación personalizada para la combinación única:
-        estudiante + tcp + semestre + asignatura
-        """
-        estudiante = data.get('estudiante')
-        asignatura = data.get('asignatura')
-        tcp = data.get('tcp')
-        
-        # Validar que TCP sea obligatorio
-        if not tcp:
-            raise serializers.ValidationError({
-                'tcp_id': 'El TCP es obligatorio.'
-            })
-        
-        if not self.instance:  # Creación
-            if estudiante and asignatura and tcp:
-                semestre_actual = estudiante.semestre_actual
-                
-                # Validar combinación única: estudiante + tcp + semestre + asignatura
-                if Nota.objects.filter(
-                    estudiante=estudiante,
-                    tcp=tcp,
-                    semestre_cursado=semestre_actual,
-                    asignatura=asignatura
-                ).exists():
-                    raise serializers.ValidationError({
-                        'error': f'El estudiante {estudiante.nombre} {estudiante.apellidos} ya tiene una nota para el TCP {tcp.numero} en la asignatura {asignatura.nombre} para el semestre {semestre_actual.numero}.'
-                    })
-                
-                data['semestre_cursado'] = semestre_actual
-        
-        else:  # Actualización
-            # Verificar qué campos cambiaron
-            estudiante_cambiado = estudiante and estudiante != self.instance.estudiante
-            asignatura_cambiado = asignatura and asignatura != self.instance.asignatura
-            tcp_cambiado = tcp and tcp != self.instance.tcp
-            
-            # Si cambió algún campo de la combinación única
-            if estudiante_cambiado or asignatura_cambiado or tcp_cambiado:
-                semestre_actual = estudiante.semestre_actual if estudiante else self.instance.estudiante.semestre_actual
-                
-                estudiante_validar = estudiante if estudiante else self.instance.estudiante
-                asignatura_validar = asignatura if asignatura else self.instance.asignatura
-                tcp_validar = tcp if tcp else self.instance.tcp
-                
-                # Validar que no exista la combinación
-                if Nota.objects.filter(
-                    estudiante=estudiante_validar,
-                    tcp=tcp_validar,
-                    semestre_cursado=semestre_actual,
-                    asignatura=asignatura_validar
-                ).exclude(pk=self.instance.pk).exists():
-                    raise serializers.ValidationError({
-                        'error': f'Ya existe una nota para el estudiante {estudiante_validar.nombre} {estudiante_validar.apellidos}, TCP {tcp_validar.numero}, asignatura {asignatura_validar.nombre} en el semestre {semestre_actual.numero}.'
-                    })
-                
-                # Actualizar el semestre cursado si cambió el estudiante
-                if estudiante_cambiado:
-                    data['semestre_cursado'] = semestre_actual
-        
-        return data
-    
-    def create(self, validated_data):
-        try:
-            return super().create(validated_data)
-        except IntegrityError as e:
-            if "unique constraint" in str(e).lower():
-                # Mensaje genérico para error de unicidad
-                raise serializers.ValidationError({
-                    'error': 'Ya existe una nota con esta combinación de estudiante, TCP, asignatura y semestre.'
-                })
-            raise e
+        read_only_fields = ['fecha_registro', 'fecha_actualizacion']
+
+    def get_estudiante_nombre(self, obj):
+        # Retorna número de control o username según tipo
+        if obj.estudiante.user_type == 'student':
+            return obj.estudiante.numero_control
+        return obj.estudiante.username
+
+    def validate_estudiante(self, value):
+        # Asegura que el estudiante sea tipo 'student'
+        if value.user_type != 'student':
+            raise serializers.ValidationError("Solo los usuarios tipo estudiante pueden tener notas.")
+        return value

@@ -1,7 +1,8 @@
 import django_filters
 from django.db import models
 from django_filters.rest_framework import FilterSet, CharFilter, NumberFilter, DateFilter
-from .models import Semestre, Asignatura, Estudiante, Nota
+from .models import *
+from usuarios.models import *
 
 class ContieneFilter(CharFilter):
     """Filtro personalizado que siempre usa 'icontains'"""
@@ -42,7 +43,7 @@ class AsignaturaFilter(FilterSet):
             'nombre': ['exact', 'icontains', 'startswith'],
         }
 
-
+'''
 class EstudianteFilter(FilterSet):
     """Filtros para Estudiante"""
     # Filtros de texto con contains
@@ -55,7 +56,7 @@ class EstudianteFilter(FilterSet):
     
     # Filtros por semestre
     semestre_actual = NumberFilter(field_name='semestre_actual__numero')
-    semestre_actual_nombre = ContieneFilter(field_name='semestre_actual__numero')
+    semestre_actual__numero = ContieneFilter(field_name='semestre_actual__numero')
     
     # Filtros de fecha
     fecha_registro_desde = DateFilter(field_name='fecha_registro', lookup_expr='gte')
@@ -78,53 +79,8 @@ class EstudianteFilter(FilterSet):
             models.Q(nombre__icontains=value) | 
             models.Q(apellidos__icontains=value)
         )
-
+'''
 class ContieneFilter(CharFilter):
     def __init__(self, *args, **kwargs):
         kwargs['lookup_expr'] = 'icontains'
         super().__init__(*args, **kwargs)
-
-class NotaFilter(FilterSet):
-    """Filtros para Nota"""
-    # Filtros por estudiante
-    estudiante_nombre = ContieneFilter(field_name='estudiante__nombre')
-    estudiante_apellidos = ContieneFilter(field_name='estudiante__apellidos')
-    estudiante_curp = ContieneFilter(field_name='estudiante__curp')
-    estudiante_nombre_completo = CharFilter(method='filter_estudiante_nombre_completo')
-    
-    # Filtros por asignatura
-    asignatura_nombre = ContieneFilter(field_name='asignatura__nombre')
-    
-    # Filtros por semestre
-    semestre_numero = NumberFilter(field_name='semestre_cursado__numero')
-    
-    # Filtros por TCP
-    tcp_id = NumberFilter(field_name='tcp__id', lookup_expr='exact')
-    tcp_numero = NumberFilter(field_name='tcp__numero', lookup_expr='exact')
-    tcp_numero_min = NumberFilter(field_name='tcp__numero', lookup_expr='gte')
-    tcp_numero_max = NumberFilter(field_name='tcp__numero', lookup_expr='lte')
-    
-    # Rango de notas
-    nota_min = NumberFilter(field_name='nota', lookup_expr='gte')
-    nota_max = NumberFilter(field_name='nota', lookup_expr='lte')
-    
-    # Filtros de fecha
-    fecha_registro_desde = DateFilter(field_name='fecha_registro', lookup_expr='gte')
-    fecha_registro_hasta = DateFilter(field_name='fecha_registro', lookup_expr='lte')
-    
-    class Meta:
-        model = Nota
-        fields = {
-            'estudiante': ['exact'],
-            'asignatura': ['exact'],
-            'semestre_cursado': ['exact'],
-            'tcp': ['exact'],
-            'nota': ['exact', 'gte', 'lte'],
-        }
-    
-    def filter_estudiante_nombre_completo(self, queryset, name, value):
-        """Filtro para buscar por nombre completo del estudiante"""
-        return queryset.filter(
-            models.Q(estudiante__nombre__icontains=value) |
-            models.Q(estudiante__apellidos__icontains=value)
-        )

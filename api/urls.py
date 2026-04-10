@@ -9,18 +9,13 @@ router.register(r'asignatura', AsignaturaViewSet)
 router.register(r'estudiante', EstudianteViewSet)
 router.register(r'nota', NotaViewSet)
 
-# URLs de autenticación (definidas como lista para mejor organización)
-auth_patterns = [
-    path('registro/', registro, name='registro'),
-    path('login/', login, name='login'),
-    #path('refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    path('perfil/', perfil, name='perfil'),
-]
+
 
 urlpatterns = [
     # API endpoints (ej: /api/semestre/, /api/estudiante/, etc)
     path('', include(router.urls)),
+    path('server-time/', server_time, name='server_time'),
     
     # Auth endpoints (ej: /api/auth/login/, /api/auth/registro/, etc)
-    path('auth/', include(auth_patterns)),
+    #path('auth/', include(auth_patterns)),
 ]
