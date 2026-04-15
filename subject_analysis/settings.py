@@ -31,14 +31,6 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['*']
 
-'''
-RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
-if RENDER_EXTERNAL_HOSTNAME:
-    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
-'''
-
-
-
 # Application definition
 
 INSTALLED_APPS = [
@@ -118,54 +110,35 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+# settings.py
+from datetime import timedelta
+
 REST_FRAMEWORK = {
     'COERCE_DECIMAL_TO_STRING': False,
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    # 'DEFAULT_AUTHENTICATION_CLASSES': [
-    #    'rest_framework.authentication.TokenAuthentication',
-    #],
-    'PAGE_SIZE': 10,  # Número de elementos por página,
+    'PAGE_SIZE': 10,
     'DEFAULT_FILTER_BACKENDS': [
         'django_filters.rest_framework.DjangoFilterBackend',
         'rest_framework.filters.SearchFilter',
         'rest_framework.filters.OrderingFilter',
     ],
-    #'DEFAULT_AUTHENTICATION_CLASSES': (
-    #    'rest_framework_simplejwt.authentication.JWTAuthentication',
-        # otras clases de autenticación si las necesitas
-   # ),
-
-
-     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.TokenAuthentication',
-        'rest_framework.authentication.SessionAuthentication',
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',  # JWT como principal
+        'rest_framework.authentication.TokenAuthentication',           # Token (opcional)
+        'rest_framework.authentication.SessionAuthentication',         # Sesión (admin)
     ],
-#    'DEFAULT_PERMISSION_CLASSES': [
-#        'rest_framework.permissions.IsAuthenticated',
-#    ]
-
 }
 
-
-
-
-'''
-REST_FRAMEWORK = {
-    'DEFAULT_FILTER_BACKENDS': [
-        'django_filters.rest_framework.DjangoFilterBackend',
-        'rest_framework.filters.SearchFilter',
-        'rest_framework.filters.OrderingFilter',
-    ]
+# Configuración de Simple JWT
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'AUTH_HEADER_TYPES': ('Bearer',),
+    'USER_ID_FIELD': 'id',
+    'USER_ID_CLAIM': 'user_id',
 }
-
-
-
-
-'''
-
-
-
-#AUTH_USER_MODEL = 'usuarios.Usuario'
 
 AUTH_USER_MODEL = 'usuarios.CustomUser'  # reemplaza 'mi_app' por el nombre de tu app
 
@@ -184,29 +157,11 @@ TIME_ZONE = 'America/Matamoros'  # Zona horaria de Tamaulipas (CDT/CST)
 USE_I18N = True                  # Activar internacionalización
 USE_TZ = True                    # Usar zona horaria consciente (recomendado)
 
-
-
-'''
-
-# Configuración regional para Tamaulipas, México
-LANGUAGE_CODE = 'en-us'          # Español (México)
-TIME_ZONE = 'America/Chicago'  # Zona horaria de Tamaulipas (CDT/CST)
-USE_I18N = True                  # Activar internacionalización
-USE_TZ = True                    # Usar zona horaria consciente (recomendado)
-
-'''
 #python manage.py loaddata semestres_iniciales.json
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
-
-'''
-if not DEBUG:
-    STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
-
-'''
 
 #python manage.py collectstatic --noinput
 

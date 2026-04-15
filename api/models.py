@@ -49,68 +49,33 @@ class Asignatura(models.Model):
         return self.nombre
 
 class Nota(models.Model):
-    # Cambio: apunta al modelo de usuario personalizado, solo estudiantes
     estudiante = models.ForeignKey(
-        settings.AUTH_USER_MODEL,          # o 'myapp.CustomUser'
+        settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name='notas',
-        limit_choices_to={'user_type': 'student'},  # solo estudiantes
+        limit_choices_to={'user_type': 'student'},
         verbose_name="Estudiante"
     )
-    asignatura = models.ForeignKey(
-        'Asignatura', 
-        on_delete=models.CASCADE, 
-        related_name='notas'
-    )
-    semestre_cursado = models.ForeignKey(
-        'usuarios.Semestre',   # ← CORREGIDO
+    asignatura = models.ForeignKey('Asignatura', on_delete=models.CASCADE, related_name='notas')
+    semestre = models.ForeignKey(  # único campo
+        'usuarios.Semestre',
         on_delete=models.PROTECT,
         related_name='notas',
-        verbose_name="Semestre en que cursó",
-        editable=False
+        verbose_name="Semestre"
     )
-    tcp = models.ForeignKey(
-        'TCP',
-        on_delete=models.PROTECT,
-        related_name='notas',
-        verbose_name="TCP asociado"
-    )
-    nota = models.DecimalField(
-        max_digits=5, 
-        decimal_places=2,
-        validators=[MinValueValidator(0.0), MaxValueValidator(100.0)]
-    )
+    tcp = models.ForeignKey('TCP', on_delete=models.PROTECT, related_name='notas')
+    nota = models.DecimalField(max_digits=5, decimal_places=2, validators=[MinValueValidator(0.0), MaxValueValidator(100.0)])
     fecha_registro = models.DateTimeField(auto_now_add=True)
     fecha_actualizacion = models.DateTimeField(auto_now=True)
 
     class Meta:
-        verbose_name = "Nota"
-        verbose_name_plural = "Notas"
-        unique_together = ['estudiante', 'tcp', 'semestre_cursado', 'asignatura']
+        unique_together = ['estudiante', 'tcp', 'semestre', 'asignatura']
         ordering = ['estudiante', 'asignatura']
 
-    def __str__(self):
-        return f"{self.estudiante} - {self.asignatura} - TCP: {self.tcp.numero} - {self.semestre_cursado}: {self.nota}"
-
     def save(self, *args, **kwargs):
-        # Validar que tenga TCP
-        if not self.tcp_id:
-            raise ValueError("El TCP es obligatorio")
-
-        # Verificar que el estudiante sea realmente un usuario tipo 'student'
-        if self.estudiante and self.estudiante.user_type != 'student':
-            raise ValueError("Solo los usuarios de tipo estudiante pueden tener notas.")
-
-        # Si no tiene semestre cursado asignado, usar el semestre actual del estudiante
-        if not self.semestre_cursado_id and self.estudiante:
-            # Asegurar que el estudiante tenga semestre_actual (puede ser nulo)
-            if hasattr(self.estudiante, 'semestre_actual') and self.estudiante.semestre_actual:
-                self.semestre_cursado = self.estudiante.semestre_actual
+        if not self.semestre_id and self.estudiante:
+            if self.estudiante.semestre_actual:
+                self.semestre = self.estudiante.semestre_actual
             else:
-                raise ValueError("El estudiante no tiene un semestre actual asignado.")
-
-        # Verificar que ya tenga semestre cursado antes de guardar
-        if not self.semestre_cursado_id:
-            raise ValueError("No se pudo determinar el semestre cursado. El estudiante debe tener un semestre actual.")
-
+                raise ValueError("El estudiante no tiene semestre actual.")
         super().save(*args, **kwargs)

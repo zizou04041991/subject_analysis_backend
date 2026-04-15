@@ -36,6 +36,9 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from django.contrib.auth import get_user_model
 from usuarios.serializers import *
 from rest_framework import viewsets, permissions
+from django.db.models import CharField, Value, F
+from django.db.models.functions import Concat
+
 
 User = get_user_model()
 
@@ -52,6 +55,7 @@ class SemestreViewSet(viewsets.ModelViewSet):
     queryset = Semestre.objects.all()
     serializer_class = SemestreSerializer
     pagination_class = PaginacionPersonalizada
+    #permission_classes = [permissions.IsAdminUser]
     
     # Filtros
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -161,7 +165,8 @@ class AsignaturaViewSet(viewsets.ModelViewSet):
     queryset = Asignatura.objects.all()
     serializer_class = AsignaturaSerializer
     pagination_class = PaginacionPersonalizada
-    
+    permission_classes = [permissions.IsAdminUser]
+
     # Filtros
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = AsignaturaFilter
@@ -310,7 +315,12 @@ class EstudianteViewSet(viewsets.ModelViewSet):
     """
     queryset = User.objects.filter(user_type='student')
     serializer_class = EstudianteSerializer
-    #permission_classes = [permissions.IsAdminUser]
+    #permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_class = StudentFilter
+    #search_fields = ['numero']  # Búsqueda general con ?search=
+    #ordering_fields = ['id', 'numero']
+    #ordering = ['numero']
 
     def perform_create(self, serializer):
         serializer.save(user_type='student')
@@ -320,10 +330,11 @@ class TCPViewSet(viewsets.ModelViewSet):
     queryset = TCP.objects.all()
     serializer_class = TCPSerializer
     pagination_class = PaginacionPersonalizada
+    permission_classes = [permissions.IsAdminUser]
     
     # Filtros
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    # filterset_class = TCPFilter  # Si tienes un filtro personalizado
+    filterset_class = TCPFilter  # Si tienes un filtro personalizado
     search_fields = ['numero']
     ordering_fields = ['id', 'numero', 'fecha_creacion']
     ordering = ['numero']
@@ -440,43 +451,34 @@ class TCPViewSet(viewsets.ModelViewSet):
         # Por defecto
         return {'error': str(error)}
 
+# views.py
+
 class NotaViewSet(viewsets.ModelViewSet):
-    """
-    CRUD completo para Notas.
-    - GET /notas/ -> lista todas
-    - POST /notas/ -> crea una nueva
-    - GET /notas/{id}/ -> detalle
-    - PUT / PATCH /notas/{id}/ -> actualiza
-    - DELETE /notas/{id}/ -> elimina
-    """
+    permission_classes = [permissions.IsAuthenticated]
     queryset = Nota.objects.all()
     serializer_class = NotaSerializer
-    #permission_classes = [permissions.IsAuthenticated]
-
-    def perform_create(self, serializer):
-        # Si el usuario autenticado es estudiante, la nota se asigna a él mismo
-        if self.request.user.user_type == 'student':
-            serializer.save(estudiante=self.request.user)
-        else:
-            # Admin puede elegir cualquier estudiante (viene en el request)
-            serializer.save()
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_class = NotaFilter
+    ordering_fields = [
+        'estudiante_nombre_completo', 
+        'nota', 
+        'asignatura_nombre',      # ← nuevo, con guion bajo
+        'semestre_numero',        # ← nuevo
+        'tcp_numero'              # ← nuevo
+    ]
+    ordering = ['estudiante_nombre_completo']
 
     def get_queryset(self):
         user = self.request.user
-        # Los estudiantes solo ven sus propias notas
+        queryset = Nota.objects.annotate(
+            estudiante_nombre_completo=Concat(
+                'estudiante__last_name', Value(' '), 'estudiante__first_name',
+                output_field=CharField()
+            ),
+            asignatura_nombre=F('asignatura__nombre'),      # ← anotación
+            semestre_numero=F('semestre__numero'),          # ← anotación
+            tcp_numero=F('tcp__numero')                     # ← anotación
+        )
         if user.user_type == 'student':
-            return Nota.objects.filter(estudiante=user)
-        # Admin ve todas las notas
-        return super().get_queryset()
-
-class EstudianteViewSet(viewsets.ModelViewSet):
-    """
-    CRUD completo para usuarios tipo Estudiante.
-    Solo accesible para administradores.
-    """
-    queryset = User.objects.filter(user_type='student')
-    serializer_class = EstudianteSerializer
-    #permission_classes = [permissions.IsAdminUser]
-
-    def perform_create(self, serializer):
-        serializer.save(user_type='student')
+            queryset = queryset.filter(estudiante=user)
+        return queryset

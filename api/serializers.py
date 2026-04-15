@@ -583,32 +583,69 @@ class TCPSerializer(serializers.ModelSerializer):
 
 
 
+# serializers.py
 class NotaSerializer(serializers.ModelSerializer):
-    # Opcional: mostrar representación legible de las relaciones
-    estudiante_nombre = serializers.SerializerMethodField()
+    estudiante_nombre_completo = serializers.SerializerMethodField()
     asignatura_nombre = serializers.CharField(source='asignatura.nombre', read_only=True)
-    semestre_cursado_numero = serializers.IntegerField(source='semestre_cursado.numero', read_only=True)
+    asignatura_color = serializers.CharField(source='asignatura.color', read_only=True)
+    semestre_numero = serializers.IntegerField(source='semestre.numero', read_only=True)
     tcp_numero = serializers.IntegerField(source='tcp.numero', read_only=True)
+    
+    # Hacemos semestre de solo lectura para que no sea requerido en el input
+    semestre = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
         model = Nota
         fields = [
-            'id', 'estudiante', 'estudiante_nombre',
-            'asignatura', 'asignatura_nombre',
-            'semestre_cursado', 'semestre_cursado_numero',
+            'id', 'estudiante', 'estudiante_nombre_completo',
+            'asignatura', 'asignatura_nombre', 'asignatura_color',
+            'semestre', 'semestre_numero',
             'tcp', 'tcp_numero',
             'nota', 'fecha_registro', 'fecha_actualizacion'
         ]
         read_only_fields = ['fecha_registro', 'fecha_actualizacion']
 
-    def get_estudiante_nombre(self, obj):
-        # Retorna número de control o username según tipo
-        if obj.estudiante.user_type == 'student':
-            return obj.estudiante.numero_control
-        return obj.estudiante.username
+    def get_estudiante_nombre_completo(self, obj):
+        return f"{obj.estudiante.last_name} {obj.estudiante.first_name}".strip()
 
-    def validate_estudiante(self, value):
-        # Asegura que el estudiante sea tipo 'student'
-        if value.user_type != 'student':
-            raise serializers.ValidationError("Solo los usuarios tipo estudiante pueden tener notas.")
-        return value
+    def validate(self, data):
+        estudiante = data.get('estudiante')
+        tcp = data.get('tcp')
+        asignatura = data.get('asignatura')
+
+        # Validar campos obligatorios
+        if not all([estudiante, tcp, asignatura]):
+            return data
+
+        # Obtener semestre actual del estudiante
+        semestre = estudiante.semestre_actual
+        if not semestre:
+            raise serializers.ValidationError(
+                "El estudiante no tiene un semestre actual. Asigne un semestre al estudiante."
+            )
+
+        # Verificar unicidad
+        existe = Nota.objects.filter(
+            estudiante=estudiante,
+            tcp=tcp,
+            semestre=semestre,
+            asignatura=asignatura
+        )
+        if self.instance:
+            existe = existe.exclude(pk=self.instance.pk)
+
+        if existe.exists():
+            raise serializers.ValidationError(
+                "Ya existe una calificación para esta combinación de Estudiante, TCP, Semestre y Asignatura."
+            )
+
+        # Inyectar el semestre calculado para que se use al guardar
+        data['semestre'] = semestre
+        return data
+
+    def create(self, validated_data):
+        # Aseguramos que semestre esté presente
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        return super().update(instance, validated_data)

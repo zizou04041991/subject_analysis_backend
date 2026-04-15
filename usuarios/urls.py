@@ -8,7 +8,10 @@ router = DefaultRouter()
 router.register(r'admin', AdminViewSet, basename='admin')
 
 urlpatterns = [
-    path('login/', LoginView.as_view(), name='login'),
+    path('login/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('login/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+     path('login/change-password/', ChangePasswordView.as_view(), name='change_password'),
+     path('login/reset-password/<int:pk>/', ResetPasswordView.as_view(), name='reset-password'),
     path('', include(router.urls)),
     # ... otras URLs (login, registro de estudiantes, etc.)
 ]
